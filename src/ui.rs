@@ -16,16 +16,13 @@ impl Widget for &App {
     // - https://github.com/ratatui/ratatui/tree/master/examples
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::bordered()
-            .title("my-better-bk")
+            .title("MyBetterBK")
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded);
 
         let text = format!(
             "This is a tui template.\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running.\n\
-                Press left and right to increment and decrement the counter respectively.\n\
-                Counter: {}",
-            self.counter
+                Press `Esc` or `q` to stop running."
         );
 
         let paragraph = Paragraph::new(text)
