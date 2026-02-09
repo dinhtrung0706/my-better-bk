@@ -20,10 +20,8 @@ impl Widget for &App {
             .title_alignment(Alignment::Center)
             .border_type(BorderType::Rounded);
 
-        let text = format!(
-            "This is a tui template.\n\
-                Press `Esc` or `q` to stop running."
-        );
+        let text = "This is a tui template.\n\
+                Press `Esc` or `q` to stop running.".to_string();
 
         let paragraph = Paragraph::new(text)
             .block(block)

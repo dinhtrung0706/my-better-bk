@@ -43,7 +43,7 @@ impl App {
                     _ => {}
                 },
                 Event::App(app_event) => match app_event {
-                    AppEvent::Quit => self.quit()
+                    AppEvent::Quit => self.quit(),
                 },
             }
         }
@@ -69,5 +69,4 @@ impl App {
     pub fn quit(&mut self) {
         self.running = false;
     }
-
 }
