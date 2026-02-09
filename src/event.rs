@@ -33,6 +33,32 @@ pub enum Event {
 pub enum AppEvent {
     /// Quit the application.
     Quit,
+    /// Update splash progress after a check completes.
+    SplashCheckCompleted(SplashStep, CheckOutcome),
+    /// All splash checks done.
+    SplashFinished,
+    /// Triggered when auth is required.
+    AuthRequired,
+    /// Auth succeeded and app can proceed.
+    AuthSucceeded,
+    /// Auth failed with a message.
+    AuthFailed(String),
+}
+
+/// The steps performed during splash checks.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum SplashStep {
+    Auth,
+    Strategies,
+    Version,
+}
+
+/// Result for a single check.
+#[derive(Clone, Debug)]
+pub enum CheckOutcome {
+    Success,
+    Warning(String),
+    Failure(String),
 }
 
 /// Terminal event handler.
@@ -77,6 +103,11 @@ impl EventHandler {
         // Ignore the result as the reciever cannot be dropped while this struct still has a
         // reference to it
         let _ = self.sender.send(Event::App(app_event));
+    }
+
+    /// Clone the sender to allow sending from background tasks.
+    pub fn sender(&self) -> mpsc::UnboundedSender<Event> {
+        self.sender.clone()
     }
 }
 

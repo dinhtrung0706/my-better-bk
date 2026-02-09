@@ -7,6 +7,7 @@ pub mod ui;
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    dotenvy::dotenv().ok();
     let terminal = ratatui::init();
     let result = App::new().run(terminal).await;
     ratatui::restore();

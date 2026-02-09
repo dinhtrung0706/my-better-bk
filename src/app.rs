@@ -1,8 +1,21 @@
-use crate::event::{AppEvent, Event, EventHandler};
+use crate::event::{AppEvent, CheckOutcome, Event, EventHandler, SplashStep};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{KeyCode, KeyEvent},
 };
+use std::{
+    collections::HashMap,
+    fs,
+    time::{Duration, Instant},
+};
+
+const AUTH_CHECK_URL: &str = "https://mybk.hcmut.edu.vn/dkmh/dangKyMonHocForm.action";
+const AUTH_LOGIN_URL: &str = "https://sso.hcmut.edu.vn/cas/login?service=https%3A%2F%2Fmybk.hcmut.edu.vn%2Fdkmh%2FdangKyMonHocForm.action";
+const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/owner/repo/releases/latest";
+const STRATEGIES_FILE: &str = "strategies.conf";
+const DEV_FLAG: &str = "--dd07t06-dev";
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const MIN_SPLASH_DURATION: Duration = Duration::from_secs(5);
 
 /// Application.
 #[derive(Debug)]
@@ -11,6 +24,36 @@ pub struct App {
     pub running: bool,
     /// Event handler.
     pub events: EventHandler,
+    /// Current screen.
+    pub screen: Screen,
+    /// Tracks splash step outcomes.
+    pub splash_results: HashMap<SplashStep, CheckOutcome>,
+    /// When the splash started.
+    pub splash_started_at: Instant,
+    /// Auth status message.
+    pub auth_message: Option<String>,
+    /// Whether an update notice should be shown in main UI.
+    pub update_notice: Option<String>,
+    /// Whether we are in dev mode.
+    pub dev_mode: bool,
+    /// Auth input placeholders.
+    pub auth_username: String,
+    pub auth_password: String,
+    /// Which auth field is active.
+    pub auth_field: AuthField,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    Splash,
+    Auth,
+    Main,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthField {
+    Username,
+    Password,
 }
 
 impl Default for App {
@@ -18,6 +61,15 @@ impl Default for App {
         Self {
             running: true,
             events: EventHandler::new(),
+            screen: Screen::Splash,
+            splash_results: HashMap::new(),
+            splash_started_at: Instant::now(),
+            auth_message: None,
+            update_notice: None,
+            dev_mode: false,
+            auth_username: String::new(),
+            auth_password: String::new(),
+            auth_field: AuthField::Username,
         }
     }
 }
@@ -25,11 +77,15 @@ impl Default for App {
 impl App {
     /// Constructs a new instance of [`App`].
     pub fn new() -> Self {
-        Self::default()
+        let dev_mode = std::env::args().any(|arg| arg == DEV_FLAG);
+        let mut app = Self::default();
+        app.dev_mode = dev_mode;
+        app
     }
 
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
+        self.spawn_splash_checks();
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
@@ -42,18 +98,78 @@ impl App {
                     }
                     _ => {}
                 },
-                Event::App(app_event) => match app_event {
-                    AppEvent::Quit => self.quit(),
-                },
+                Event::App(app_event) => self.handle_app_event(app_event),
             }
         }
         Ok(())
+    }
+
+    fn handle_app_event(&mut self, app_event: AppEvent) {
+        match app_event {
+            AppEvent::Quit => self.quit(),
+            AppEvent::SplashCheckCompleted(step, outcome) => {
+                if matches!(step, SplashStep::Version)
+                    && matches!(outcome, CheckOutcome::Warning(_))
+                    && let CheckOutcome::Warning(message) = &outcome {
+                        self.update_notice = Some(message.clone());
+                    }
+                self.splash_results.insert(step, outcome);
+            }
+            AppEvent::SplashFinished => {
+                if matches!(self.screen, Screen::Splash) {
+                    if matches!(
+                        self.splash_results.get(&SplashStep::Auth),
+                        Some(CheckOutcome::Failure(_))
+                    ) {
+                        self.screen = Screen::Auth;
+                    } else {
+                        self.screen = Screen::Main;
+                    }
+                }
+            }
+            AppEvent::AuthRequired => {
+                // Wait for SplashFinished to transition screens.
+            }
+            AppEvent::AuthSucceeded => {
+                self.screen = Screen::Main;
+                self.auth_message = None;
+            }
+            AppEvent::AuthFailed(message) => {
+                self.auth_message = Some(message);
+            }
+        }
     }
 
     /// Handles the key events and updates the state of [`App`].
     pub fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
         match key_event.code {
             KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
+            KeyCode::Enter if matches!(self.screen, Screen::Auth) => {
+                self.auth_message = Some("Attempting login...".to_string());
+                self.spawn_auth_login();
+            }
+            KeyCode::Tab if matches!(self.screen, Screen::Auth) => {
+                self.auth_field = match self.auth_field {
+                    AuthField::Username => AuthField::Password,
+                    AuthField::Password => AuthField::Username,
+                };
+            }
+            KeyCode::Char(ch) if matches!(self.screen, Screen::Auth) => {
+                match self.auth_field {
+                    AuthField::Username => self.auth_username.push(ch),
+                    AuthField::Password => self.auth_password.push(ch),
+                }
+            }
+            KeyCode::Backspace if matches!(self.screen, Screen::Auth) => {
+                match self.auth_field {
+                    AuthField::Username => {
+                        self.auth_username.pop();
+                    }
+                    AuthField::Password => {
+                        self.auth_password.pop();
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -69,4 +185,147 @@ impl App {
     pub fn quit(&mut self) {
         self.running = false;
     }
+
+    fn spawn_splash_checks(&mut self) {
+        let sender = self.events.sender();
+        let splash_started = self.splash_started_at;
+        tokio::spawn(async move {
+            let auth_outcome = check_auth().await;
+            let _ = sender.send(Event::App(AppEvent::SplashCheckCompleted(
+                SplashStep::Auth,
+                auth_outcome.clone(),
+            )));
+
+            let strategies_outcome = check_strategies();
+            let _ = sender.send(Event::App(AppEvent::SplashCheckCompleted(
+                SplashStep::Strategies,
+                strategies_outcome,
+            )));
+
+            let version_outcome = check_version().await;
+            let _ = sender.send(Event::App(AppEvent::SplashCheckCompleted(
+                SplashStep::Version,
+                version_outcome,
+            )));
+
+            if matches!(auth_outcome, CheckOutcome::Failure(_)) {
+                let _ = sender.send(Event::App(AppEvent::AuthRequired));
+            }
+
+            let elapsed = splash_started.elapsed();
+            if elapsed < MIN_SPLASH_DURATION {
+                tokio::time::sleep(MIN_SPLASH_DURATION - elapsed).await;
+            }
+
+            let _ = sender.send(Event::App(AppEvent::SplashFinished));
+        });
+    }
+
+    fn spawn_auth_login(&mut self) {
+        let sender = self.events.sender();
+        let dev_mode = self.dev_mode;
+        tokio::spawn(async move {
+            let outcome = simulate_auth_login(dev_mode).await;
+            match outcome {
+                Ok(()) => {
+                    let _ = sender.send(Event::App(AppEvent::AuthSucceeded));
+                }
+                Err(message) => {
+                    let _ = sender.send(Event::App(AppEvent::AuthFailed(message)));
+                }
+            }
+        });
+    }
+}
+
+async fn check_auth() -> CheckOutcome {
+    let cookie = match std::env::var("JSESSIONID") {
+        Ok(value) if !value.is_empty() => value,
+        _ => return CheckOutcome::Failure("Missing JSESSIONID env".to_string()),
+    };
+
+    let client = match reqwest::Client::builder().timeout(DEFAULT_TIMEOUT).build() {
+        Ok(client) => client,
+        Err(err) => return CheckOutcome::Failure(format!("Auth client error: {err}")),
+    };
+
+    let response = client
+        .get(AUTH_CHECK_URL)
+        .header("Cookie", format!("JSESSIONID={cookie}"))
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if resp.url().as_str().starts_with(AUTH_LOGIN_URL) {
+                CheckOutcome::Failure("Redirected to login".to_string())
+            } else {
+                CheckOutcome::Success
+            }
+        }
+        Err(err) => CheckOutcome::Failure(format!("Auth request failed: {err}")),
+    }
+}
+
+fn check_strategies() -> CheckOutcome {
+    match fs::read_to_string(STRATEGIES_FILE) {
+        Ok(contents) if !contents.trim().is_empty() => CheckOutcome::Success,
+        Ok(_) => CheckOutcome::Warning("Strategies empty".to_string()),
+        Err(_) => {
+            if let Err(err) = fs::write(STRATEGIES_FILE, "") {
+                return CheckOutcome::Warning(format!(
+                    "Strategies missing; failed to create blank file: {err}"
+                ));
+            }
+            CheckOutcome::Warning("Strategies missing; created blank file".to_string())
+        }
+    }
+}
+
+async fn check_version() -> CheckOutcome {
+    let package_version = env!("CARGO_PKG_VERSION");
+    let current = match semver::Version::parse(package_version) {
+        Ok(version) => version,
+        Err(err) => return CheckOutcome::Warning(format!("Invalid version: {err}")),
+    };
+
+    let client = match reqwest::Client::builder()
+        .timeout(DEFAULT_TIMEOUT)
+        .user_agent("my-better-bk")
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => return CheckOutcome::Warning(format!("Version client error: {err}")),
+    };
+
+    let response = client.get(GITHUB_LATEST_RELEASE_URL).send().await;
+    let response = match response {
+        Ok(response) => response,
+        Err(err) => return CheckOutcome::Warning(format!("Version check failed: {err}")),
+    };
+
+    let json: serde_json::Value = match response.json().await {
+        Ok(json) => json,
+        Err(err) => return CheckOutcome::Warning(format!("Invalid version response: {err}")),
+    };
+
+    let tag_name = json
+        .get("tag_name")
+        .and_then(|value| value.as_str())
+        .unwrap_or("0.0.0");
+
+    let latest = tag_name.trim_start_matches('v');
+    match semver::Version::parse(latest) {
+        Ok(latest_version) if latest_version > current => CheckOutcome::Warning(format!(
+            "Update required: {current} -> {latest_version}"
+        )),
+        Ok(_) => CheckOutcome::Success,
+        Err(err) => CheckOutcome::Warning(format!("Invalid latest version: {err}")),
+    }
+}
+
+async fn simulate_auth_login(dev_mode: bool) -> Result<(), String> {
+    let _ = dev_mode;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    Err("Auth automation not implemented yet".to_string())
 }
