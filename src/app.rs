@@ -84,9 +84,10 @@ impl App {
     /// Constructs a new instance of [`App`].
     pub fn new() -> Self {
         let dev_mode = std::env::args().any(|arg| arg == DEV_FLAG);
-        let mut app = Self::default();
-        app.dev_mode = dev_mode;
-        app
+        Self {
+            dev_mode,
+            ..Self::default()
+        }
     }
 
     /// Run the application's main loop.
@@ -340,7 +341,7 @@ async fn simulate_auth_login(
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .expect("Failed to start ChromeDriver process");
+        .expect("Failed to start ChromeDriver process").wait().unwrap();
     let mut caps = DesiredCapabilities::chrome();
     if !dev_mode {
         caps.add_arg("--headless").map_err(|err| err.to_string())?;

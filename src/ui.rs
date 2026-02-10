@@ -105,12 +105,46 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .render(layout[0], buf);
 
-    let username = Paragraph::new(format!("Username: {}", app.auth_username))
-        .style(Style::default().fg(Color::Yellow));
+    let active_field_style = Style::default()
+        .fg(Color::White)
+        .bg(Color::LightCyan)
+        .add_modifier(Modifier::BOLD);
+    let inactive_field_style = Style::default().fg(Color::Yellow);
+
+    let username_style = if matches!(app.auth_field, crate::app::AuthField::Username) {
+        active_field_style
+    } else {
+        inactive_field_style
+    };
+    let password_style = if matches!(app.auth_field, crate::app::AuthField::Password) {
+        active_field_style
+    } else {
+        inactive_field_style
+    };
+
+    let username_prefix = if matches!(app.auth_field, crate::app::AuthField::Username) {
+        "> "
+    } else {
+        "  "
+    };
+    let password_prefix = if matches!(app.auth_field, crate::app::AuthField::Password) {
+        "> "
+    } else {
+        "  "
+    };
+
+    let username = Paragraph::new(format!(
+        "{username_prefix}Username: {}",
+        app.auth_username
+    ))
+    .style(username_style);
     username.render(layout[1], buf);
 
-    let password = Paragraph::new(format!("Password: {}", "*".repeat(app.auth_password.len())))
-        .style(Style::default().fg(Color::Yellow));
+    let password = Paragraph::new(format!(
+        "{password_prefix}Password: {}",
+        "*".repeat(app.auth_password.len())
+    ))
+    .style(password_style);
     password.render(layout[2], buf);
 
     let message = app
@@ -183,6 +217,7 @@ fn splash_progress(app: &App) -> (usize, usize) {
     let completed = app.splash_results.len().min(total);
     (completed, total)
 }
+
 
 
 
