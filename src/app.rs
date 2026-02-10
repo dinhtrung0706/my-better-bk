@@ -4,10 +4,15 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent},
 };
 use std::{
-    collections::HashMap,
-    fs,
-    time::{Duration, Instant},
+    collections::HashMap, fs, process::{Command, Stdio}, time::{Duration, Instant}
 };
+use thirtyfour::{
+    By, 
+    ChromiumLikeCapabilities, 
+    DesiredCapabilities, 
+    WebDriver
+};
+use chrome_driver_rs::ensure_latest_driver;
 
 const AUTH_CHECK_URL: &str = "https://mybk.hcmut.edu.vn/dkmh/dangKyMonHocForm.action";
 const AUTH_LOGIN_URL: &str = "https://sso.hcmut.edu.vn/cas/login?service=https%3A%2F%2Fmybk.hcmut.edu.vn%2Fdkmh%2FdangKyMonHocForm.action";
@@ -16,6 +21,7 @@ const STRATEGIES_FILE: &str = "strategies.conf";
 const DEV_FLAG: &str = "--dd07t06-dev";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(5);
+const LOGIN_REDIRECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Application.
 #[derive(Debug)]
@@ -110,9 +116,10 @@ impl App {
             AppEvent::SplashCheckCompleted(step, outcome) => {
                 if matches!(step, SplashStep::Version)
                     && matches!(outcome, CheckOutcome::Warning(_))
-                    && let CheckOutcome::Warning(message) = &outcome {
-                        self.update_notice = Some(message.clone());
-                    }
+                    && let CheckOutcome::Warning(message) = &outcome
+                {
+                    self.update_notice = Some(message.clone());
+                }
                 self.splash_results.insert(step, outcome);
             }
             AppEvent::SplashFinished => {
@@ -154,22 +161,18 @@ impl App {
                     AuthField::Password => AuthField::Username,
                 };
             }
-            KeyCode::Char(ch) if matches!(self.screen, Screen::Auth) => {
-                match self.auth_field {
-                    AuthField::Username => self.auth_username.push(ch),
-                    AuthField::Password => self.auth_password.push(ch),
+            KeyCode::Char(ch) if matches!(self.screen, Screen::Auth) => match self.auth_field {
+                AuthField::Username => self.auth_username.push(ch),
+                AuthField::Password => self.auth_password.push(ch),
+            },
+            KeyCode::Backspace if matches!(self.screen, Screen::Auth) => match self.auth_field {
+                AuthField::Username => {
+                    self.auth_username.pop();
                 }
-            }
-            KeyCode::Backspace if matches!(self.screen, Screen::Auth) => {
-                match self.auth_field {
-                    AuthField::Username => {
-                        self.auth_username.pop();
-                    }
-                    AuthField::Password => {
-                        self.auth_password.pop();
-                    }
+                AuthField::Password => {
+                    self.auth_password.pop();
                 }
-            }
+            },
             _ => {}
         }
         Ok(())
@@ -224,8 +227,10 @@ impl App {
     fn spawn_auth_login(&mut self) {
         let sender = self.events.sender();
         let dev_mode = self.dev_mode;
+        let username = self.auth_username.clone();
+        let password = self.auth_password.clone();
         tokio::spawn(async move {
-            let outcome = simulate_auth_login(dev_mode).await;
+            let outcome = simulate_auth_login(dev_mode, username, password).await;
             match outcome {
                 Ok(()) => {
                     let _ = sender.send(Event::App(AppEvent::AuthSucceeded));
@@ -316,16 +321,125 @@ async fn check_version() -> CheckOutcome {
 
     let latest = tag_name.trim_start_matches('v');
     match semver::Version::parse(latest) {
-        Ok(latest_version) if latest_version > current => CheckOutcome::Warning(format!(
-            "Update required: {current} -> {latest_version}"
-        )),
+        Ok(latest_version) if latest_version > current => {
+            CheckOutcome::Warning(format!("Update required: {current} -> {latest_version}"))
+        }
         Ok(_) => CheckOutcome::Success,
         Err(err) => CheckOutcome::Warning(format!("Invalid latest version: {err}")),
     }
 }
 
-async fn simulate_auth_login(dev_mode: bool) -> Result<(), String> {
-    let _ = dev_mode;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    Err("Auth automation not implemented yet".to_string())
+async fn simulate_auth_login(
+    dev_mode: bool,
+    auth_username: String,
+    auth_password: String,
+) -> Result<(), String> {
+    let info = ensure_latest_driver("./driver").await.unwrap();
+    Command::new(&info.driver_path)
+        .arg("--port=4444")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("Failed to start ChromeDriver process");
+    let mut caps = DesiredCapabilities::chrome();
+    if !dev_mode {
+        caps.add_arg("--headless").map_err(|err| err.to_string())?;
+    }
+    caps.add_arg("--no-sandbox").map_err(|err| err.to_string())?;
+    caps.add_arg("--disable-gpu").map_err(|err| err.to_string())?;
+
+    let server_url = "http://localhost:4444";
+
+    let driver = WebDriver::new(server_url, caps)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    driver
+        .goto(AUTH_LOGIN_URL)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let username_element = driver
+        .find(By::Css("#username"))
+        .await
+        .map_err(|err| err.to_string())?;
+    username_element
+        .send_keys(auth_username)
+        .await
+        .map_err(|err| err.to_string())?;
+    let password_element = driver
+        .find(By::Css("#password"))
+        .await
+        .map_err(|err| err.to_string())?;
+    password_element
+        .send_keys(auth_password)
+        .await
+        .map_err(|err| err.to_string())?;
+    let login_button = driver
+        .find(By::Css("#fm1 > div.row.btn-row > input.btn-submit"))
+        .await
+        .map_err(|err| err.to_string())?;
+    login_button.click().await.map_err(|err| err.to_string())?;
+
+    wait_for_auth_redirect(&driver).await?;
+    let session_id = extract_jsessionid(&driver).await?;
+    write_jsessionid_to_env(&session_id)?;
+    Ok(())
+}
+
+async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
+    let started = Instant::now();
+    loop {
+        let url = driver.current_url().await.map_err(|err| err.to_string())?;
+        if url.as_str().starts_with(AUTH_CHECK_URL) {
+            return Ok(());
+        }
+        if started.elapsed() >= LOGIN_REDIRECT_TIMEOUT {
+            return Err("Login redirect timed out".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+}
+
+async fn extract_jsessionid(driver: &WebDriver) -> Result<String, String> {
+    let cookies = driver
+        .get_all_cookies()
+        .await
+        .map_err(|err| err.to_string())?;
+    let session = cookies
+        .into_iter()
+        .find(|cookie| cookie.name == "JSESSIONID")
+        .ok_or_else(|| "JSESSIONID cookie not found".to_string())?;
+    Ok(session.value.to_string())
+}
+
+fn write_jsessionid_to_env(session_id: &str) -> Result<(), String> {
+    let env_path = ".env";
+    let contents = fs::read_to_string(env_path).unwrap_or_default();
+    let mut lines: Vec<String> = if contents.is_empty() {
+        Vec::new()
+    } else {
+        contents.lines().map(|line| line.to_string()).collect()
+    };
+
+    let mut replaced = false;
+    for line in &mut lines {
+        if line.starts_with("JSESSIONID=") {
+            *line = format!("JSESSIONID={session_id}");
+            replaced = true;
+            break;
+        }
+    }
+
+    if !replaced {
+        lines.push(format!("JSESSIONID={session_id}"));
+    }
+
+    let updated = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
+    fs::write(env_path, updated).map_err(|err| err.to_string())?;
+    Ok(())
 }

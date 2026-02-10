@@ -97,6 +97,7 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(2),
+            Constraint::Length(1)
         ])
         .split(inner);
 
@@ -120,6 +121,12 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Cyan))
         .render(layout[3], buf);
+
+    let hint_navigate = "Use Tab to switch fields.";
+    Paragraph::new(hint_navigate)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray))
+        .render(layout[4], buf);
 }
 
 fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
