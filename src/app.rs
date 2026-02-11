@@ -47,6 +47,8 @@ pub struct App {
     pub auth_password: String,
     /// Which auth field is active.
     pub auth_field: AuthField,
+    /// Whether an auth attempt is currently running.
+    pub auth_in_progress: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +78,7 @@ impl Default for App {
             auth_username: String::new(),
             auth_password: String::new(),
             auth_field: AuthField::Username,
+            auth_in_progress: false,
         }
     }
 }
@@ -141,9 +144,11 @@ impl App {
             AppEvent::AuthSucceeded => {
                 self.screen = Screen::Main;
                 self.auth_message = None;
+                self.auth_in_progress = false;
             }
             AppEvent::AuthFailed(message) => {
                 self.auth_message = Some(message);
+                self.auth_in_progress = false;
             }
         }
     }
@@ -153,7 +158,16 @@ impl App {
         match key_event.code {
             KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
             KeyCode::Enter if matches!(self.screen, Screen::Auth) => {
-                self.auth_message = Some("Attempting login...".to_string());
+                if self.auth_in_progress {
+                    self.auth_message = Some("Login already in progress...".to_string());
+                    return Ok(());
+                }
+                if self.auth_username.trim().is_empty() || self.auth_password.trim().is_empty() {
+                    self.auth_message = Some("Username and password cannot be blank.".to_string());
+                    return Ok(());
+                }
+                self.auth_in_progress = true;
+                self.auth_message = Some("Attempting login...\n".to_string());
                 self.spawn_auth_login();
             }
             KeyCode::Tab if matches!(self.screen, Screen::Auth) => {
@@ -338,16 +352,22 @@ async fn simulate_auth_login(
     let info = ensure_latest_driver("./driver").await.unwrap();
     Command::new(&info.driver_path)
         .arg("--port=4444")
+        .arg("--log-level=OFF")
+        .arg("--silent")
+        .arg("--log-path=NUL")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .expect("Failed to start ChromeDriver process").wait().unwrap();
+        .map_err(|err| err.to_string())?;
     let mut caps = DesiredCapabilities::chrome();
     if !dev_mode {
         caps.add_arg("--headless").map_err(|err| err.to_string())?;
     }
     caps.add_arg("--no-sandbox").map_err(|err| err.to_string())?;
     caps.add_arg("--disable-gpu").map_err(|err| err.to_string())?;
+    caps.add_arg("--disable-logging").map_err(|err| err.to_string())?;
+    caps.add_arg("--log-level=3").map_err(|err| err.to_string())?;
+    caps.add_arg("--silent").map_err(|err| err.to_string())?;
 
     let server_url = "http://localhost:4444";
 
@@ -360,31 +380,41 @@ async fn simulate_auth_login(
         .await
         .map_err(|err| err.to_string())?;
 
-    let username_element = driver
-        .find(By::Css("#username"))
-        .await
-        .map_err(|err| err.to_string())?;
-    username_element
-        .send_keys(auth_username)
-        .await
-        .map_err(|err| err.to_string())?;
-    let password_element = driver
-        .find(By::Css("#password"))
-        .await
-        .map_err(|err| err.to_string())?;
-    password_element
-        .send_keys(auth_password)
-        .await
-        .map_err(|err| err.to_string())?;
-    let login_button = driver
-        .find(By::Css("#fm1 > div.row.btn-row > input.btn-submit"))
-        .await
-        .map_err(|err| err.to_string())?;
-    login_button.click().await.map_err(|err| err.to_string())?;
+    let login_result = async {
+        let username_element = driver
+            .find(By::Css("#username"))
+            .await
+            .map_err(|err| err.to_string())?;
+        username_element
+            .send_keys(auth_username)
+            .await
+            .map_err(|err| err.to_string())?;
+        let password_element = driver
+            .find(By::Css("#password"))
+            .await
+            .map_err(|err| err.to_string())?;
+        password_element
+            .send_keys(auth_password)
+            .await
+            .map_err(|err| err.to_string())?;
+        let login_button = driver
+            .find(By::Css("#fm1 > div.row.btn-row > input.btn-submit"))
+            .await
+            .map_err(|err| err.to_string())?;
+        login_button.click().await.map_err(|err| err.to_string())?;
 
-    wait_for_auth_redirect(&driver).await?;
-    let session_id = extract_jsessionid(&driver).await?;
-    write_jsessionid_to_env(&session_id)?;
+        wait_for_auth_redirect(&driver).await?;
+        let session_id = extract_jsessionid(&driver).await?;
+        write_jsessionid_to_env(&session_id)?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(err) = login_result {
+        let _ = driver.quit().await;
+        return Err(err);
+    }
+
     driver.quit().await.map_err(|err| err.to_string())?;
     Ok(())
 }
@@ -396,11 +426,25 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         if url.as_str().starts_with(AUTH_CHECK_URL) {
             return Ok(());
         }
+        if url.as_str().starts_with(AUTH_LOGIN_URL) && started.elapsed() >= Duration::from_secs(1)
+            && is_wrong_credential_message_visible(driver).await? {
+                return Err("Wrong username or password".to_string());
+            }
         if started.elapsed() >= LOGIN_REDIRECT_TIMEOUT {
             return Err("Login redirect timed out".to_string());
         }
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
+}
+
+async fn is_wrong_credential_message_visible(driver: &WebDriver) -> Result<bool, String> {
+    if let Ok(element) = driver.find(By::Css("#msg.errors")).await {
+        let text = element.text().await.map_err(|err| err.to_string())?;
+        if text.contains("cannot be determined to be authentic") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn extract_jsessionid(driver: &WebDriver) -> Result<String, String> {

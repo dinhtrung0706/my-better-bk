@@ -4,6 +4,7 @@ use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, BorderType, LineGauge, Paragraph, Widget, Wrap},
+    Frame
 };
 
 use crate::app::{App, Screen};
@@ -29,7 +30,8 @@ fn render_splash(app: &App, area: Rect, buf: &mut Buffer) {
     let block = Block::bordered()
         .title("MyBetterBK - Starting")
         .title_alignment(Alignment::Center)
-        .border_type(BorderType::Rounded);
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
 
     let inner = block.inner(area);
 
@@ -39,8 +41,8 @@ fn render_splash(app: &App, area: Rect, buf: &mut Buffer) {
         .constraints([
             Constraint::Length(3),
             Constraint::Length(5),
-            Constraint::Length(3),
             Constraint::Min(3),
+            Constraint::Length(3),
             Constraint::Length(1),
         ])
         .split(inner);
@@ -73,7 +75,7 @@ fn render_splash(app: &App, area: Rect, buf: &mut Buffer) {
         .filled_style(Style::default().fg(Color::Green))
         .label(format!("{progress}/{total}"))
         .ratio(progress as f64 / total as f64);
-    gauge.render(layout[2], buf);
+    gauge.render(layout[3], buf);
 
     let hint = Paragraph::new("Please wait while checks complete. Press q to quit.")
         .alignment(Alignment::Center)
@@ -85,7 +87,8 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
     let block = Block::bordered()
         .title("Authentication Required")
         .title_alignment(Alignment::Center)
-        .border_type(BorderType::Rounded);
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
     let inner = block.inner(area);
     block.render(area, buf);
 
@@ -156,7 +159,7 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(Color::Cyan))
         .render(layout[3], buf);
 
-    let hint_navigate = "Use Tab to switch fields.";
+    let hint_navigate = "Use Tab to switch fields. Press `Esc` or `q` to quit.";
     Paragraph::new(hint_navigate)
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::DarkGray))
@@ -167,7 +170,8 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
      let block = Block::bordered()
          .title("MyBetterBK")
          .title_alignment(Alignment::Center)
-         .border_type(BorderType::Rounded);
+         .border_type(BorderType::Rounded)
+         .fg(Color::LightCyan);
      let inner = block.inner(area);
      block.render(area, buf);
 
