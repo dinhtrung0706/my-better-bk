@@ -4,7 +4,6 @@ use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, BorderType, LineGauge, Paragraph, Widget, Wrap},
-    Frame
 };
 
 use crate::app::{App, Screen};
