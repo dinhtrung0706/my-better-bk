@@ -1,18 +1,16 @@
 use crate::event::{AppEvent, CheckOutcome, Event, EventHandler, SplashStep};
+use chrome_driver_rs::ensure_latest_driver;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{KeyCode, KeyEvent},
 };
 use std::{
-    collections::HashMap, fs, process::{Command, Stdio}, time::{Duration, Instant}
+    collections::HashMap,
+    fs,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
 };
-use thirtyfour::{
-    By, 
-    ChromiumLikeCapabilities, 
-    DesiredCapabilities, 
-    WebDriver
-};
-use chrome_driver_rs::ensure_latest_driver;
+use thirtyfour::{By, ChromiumLikeCapabilities, DesiredCapabilities, WebDriver};
 
 const AUTH_CHECK_URL: &str = "https://mybk.hcmut.edu.vn/dkmh/dangKyMonHocForm.action";
 const AUTH_LOGIN_URL: &str = "https://sso.hcmut.edu.vn/cas/login?service=https%3A%2F%2Fmybk.hcmut.edu.vn%2Fdkmh%2FdangKyMonHocForm.action";
@@ -363,10 +361,14 @@ async fn simulate_auth_login(
     if !dev_mode {
         caps.add_arg("--headless").map_err(|err| err.to_string())?;
     }
-    caps.add_arg("--no-sandbox").map_err(|err| err.to_string())?;
-    caps.add_arg("--disable-gpu").map_err(|err| err.to_string())?;
-    caps.add_arg("--disable-logging").map_err(|err| err.to_string())?;
-    caps.add_arg("--log-level=3").map_err(|err| err.to_string())?;
+    caps.add_arg("--no-sandbox")
+        .map_err(|err| err.to_string())?;
+    caps.add_arg("--disable-gpu")
+        .map_err(|err| err.to_string())?;
+    caps.add_arg("--disable-logging")
+        .map_err(|err| err.to_string())?;
+    caps.add_arg("--log-level=3")
+        .map_err(|err| err.to_string())?;
     caps.add_arg("--silent").map_err(|err| err.to_string())?;
 
     let server_url = "http://localhost:4444";
@@ -426,10 +428,12 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         if url.as_str().starts_with(AUTH_CHECK_URL) {
             return Ok(());
         }
-        if url.as_str().starts_with(AUTH_LOGIN_URL) && started.elapsed() >= Duration::from_secs(1)
-            && is_wrong_credential_message_visible(driver).await? {
-                return Err("Wrong username or password".to_string());
-            }
+        if url.as_str().starts_with(AUTH_LOGIN_URL)
+            && started.elapsed() >= Duration::from_secs(1)
+            && is_wrong_credential_message_visible(driver).await?
+        {
+            return Err("Wrong username or password".to_string());
+        }
         if started.elapsed() >= LOGIN_REDIRECT_TIMEOUT {
             return Err("Login redirect timed out".to_string());
         }
