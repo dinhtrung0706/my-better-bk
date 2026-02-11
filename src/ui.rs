@@ -50,7 +50,11 @@ fn render_splash(app: &App, area: Rect, buf: &mut Buffer) {
 
     let title = Paragraph::new("Initializing checks...")
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
     title.render(layout[0], buf);
 
     let status_lines = vec![
@@ -99,7 +103,7 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(2),
-            Constraint::Length(1)
+            Constraint::Length(1),
         ])
         .split(inner);
 
@@ -135,11 +139,8 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
         "  "
     };
 
-    let username = Paragraph::new(format!(
-        "{username_prefix}Username: {}",
-        app.auth_username
-    ))
-    .style(username_style);
+    let username = Paragraph::new(format!("{username_prefix}Username: {}", app.auth_username))
+        .style(username_style);
     username.render(layout[1], buf);
 
     let password = Paragraph::new(format!(
@@ -166,17 +167,21 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
 }
 
 fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
-     let block = Block::bordered()
-         .title("MyBetterBK")
-         .title_alignment(Alignment::Center)
-         .border_type(BorderType::Rounded)
-         .fg(Color::LightCyan);
-     let inner = block.inner(area);
-     block.render(area, buf);
+    let block = Block::bordered()
+        .title("MyBetterBK")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
+    let inner = block.inner(area);
+    block.render(area, buf);
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(7),
+            Constraint::Min(3),
+            Constraint::Length(2),
+        ])
         .split(inner);
 
     let banner = r#" __    __     __  __        ______     ______     ______   ______   ______     ______        ______     __  __    
@@ -192,13 +197,54 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(Color::Cyan));
     banner_paragraph.render(layout[0], buf);
 
-    let text = "This is a tui template.\nPress `Esc` or `q` to stop running.";
+    let sub_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(layout[1]);
+
+    let s_block = Block::bordered()
+        .title("Info Log")
+        .title_alignment(Alignment::Left)
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
+    let s_inner = s_block.inner(sub_layout[1]);
+    s_block.render(sub_layout[1], buf);
+
+    let s_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(sub_layout[0]);
+
+    let ss_block_menu = Block::bordered()
+        .title("Menu")
+        .title_alignment(Alignment::Left)
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
+    let ss_inner_menu = ss_block_menu.inner(s_layout[0]);
+    ss_block_menu.render(s_layout[0], buf);
+
+    let ss_block_credit = Block::bordered()
+        .title("Credits")
+        .title_alignment(Alignment::Left)
+        .border_type(BorderType::Rounded)
+        .fg(Color::LightCyan);
+    let ss_inner_credit = ss_block_credit.inner(s_layout[1]);
+    ss_block_credit.render(s_layout[1], buf);
+
+    let credit = "Author: `Your Name`\nProject: MyBetterBK\nLicense: MIT, Language: Rust, Framework: Ratatui";
+    let credit_paragraph = Paragraph::new(credit)
+        .block(Block::default())
+        .fg(Color::White)
+        .centered();
+    credit_paragraph.render(ss_inner_credit, buf);
+
+    let text = "Press `Esc` or `q` to stop running.";
     let paragraph = Paragraph::new(text)
         .block(Block::default())
         .fg(Color::Cyan)
         .bg(Color::Black)
         .centered();
-    paragraph.render(layout[1], buf);
+    paragraph.render(layout[2], buf);
 }
 
 fn status_line(app: &App, step: SplashStep, label: &str) -> Line<'static> {
@@ -220,9 +266,3 @@ fn splash_progress(app: &App) -> (usize, usize) {
     let completed = app.splash_results.len().min(total);
     (completed, total)
 }
-
-
-
-
-
-
