@@ -107,7 +107,7 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
 
     let active_field_style = Style::default()
         .fg(Color::White)
-        .bg(Color::LightCyan)
+        // .bg(Color::LightCyan)
         .add_modifier(Modifier::BOLD);
     let inactive_field_style = Style::default().fg(Color::Yellow);
 

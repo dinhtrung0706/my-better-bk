@@ -385,6 +385,7 @@ async fn simulate_auth_login(
     wait_for_auth_redirect(&driver).await?;
     let session_id = extract_jsessionid(&driver).await?;
     write_jsessionid_to_env(&session_id)?;
+    driver.quit().await.map_err(|err| err.to_string())?;
     Ok(())
 }
 
