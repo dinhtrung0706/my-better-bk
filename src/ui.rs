@@ -166,7 +166,7 @@ fn render_auth(app: &App, area: Rect, buf: &mut Buffer) {
         .render(layout[4], buf);
 }
 
-fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
+fn render_main(app: &App, area: Rect, buf: &mut Buffer) {
     let block = Block::bordered()
         .title("MyBetterBK")
         .title_alignment(Alignment::Center)
@@ -210,6 +210,45 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
     let s_inner = s_block.inner(sub_layout[1]);
     s_block.render(sub_layout[1], buf);
 
+    if app.show_menu_art {
+        let art = r#"      ██████████                ██████████          
+    ██▓▓▓▓▓▓▓▓▒▒██            ██▒▒▓▓▓▓▓▓▓▓██        
+  ██▓▓▓▓██████▓▓▓▓██        ██▓▓▓▓██████▓▓▓▓██      
+  ██▓▓██░░░░░░██▓▓▓▓██    ██▓▓▓▓██░░░░░░██▓▓██      
+██▓▓██░░░░░░░░░░██▓▓██    ██▓▓██░░░░░░░░░░██▓▓██    
+██▓▓██░░░░░░░░░░██▓▓██    ██▓▓██░░░░░░░░░░██▓▓██    
+████░░░░░░░░░░░░██▓▓██    ██▓▓██░░░░░░░░░░░░████    
+  ██░░░░░░░░░░░░████████████████░░░░░░░░░░░░██      
+  ██░░░░░░░░░░░░██▓▓▓▓▓▓▓▓▓▓▓▓██░░░░░░░░░░░░██      
+    ██░░░░░░░░██▒▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓██░░░░░░░░██        
+      ████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒████████          
+            ██▓▓  ██▓▓▓▓▓▓▓▓  ██▒▒██          ██████
+            ██▓▓████▓▓▓▓▓▓▓▓████▓▓██        ██▒▒██  
+            ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██      ██▒▒██    
+        ██████▓▓▓▓▓▓▓▓░░░░▓▓▓▓▓▓▓▓██████  ██▒▒██    
+            ██▓▓▓▓▓▓▓▓░░░░▓▓▓▓▓▓▓▓██      ██▒▒██    
+        ████████▓▓▓▓▒▒▓▓▓▓▒▒▓▓▓▓████████  ██▒▒██    
+              ██████▓▓▒▒▒▒▓▓██████        ██▒▒██    
+            ██▓▓▓▓▓▓████████▓▓▓▓▓▓██      ██▒▒██    
+            ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██      ██▒▒██    
+          ██▓▓▓▓████▓▓▓▓▓▓▓▓████▓▓▓▓██    ██▒▒██    
+          ██▓▓▓▓▓▓▓▓██▓▓▓▓██▓▓▓▓▓▓▓▓██    ██▒▒██    
+          ████▓▓▓▓▓▓██▓▓▓▓██▓▓▓▓▓▓████    ██▒▒██    
+          ██▓▓██████▓▓▓▓▓▓▓▓██████▓▓██████▒▒▒▒██    
+          ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██▒▒▒▒████      
+          ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██████          
+          ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓██              
+        ████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓████            
+      ██▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▓▓▓▓▓▓██          
+      ████████████████████████████████████          
+"#;
+        Paragraph::new(art)
+            .block(Block::default())
+            .alignment(Alignment::Left)
+            .style(Style::default().fg(Color::White))
+            .render(s_inner, buf);
+    }
+
     let s_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
@@ -222,6 +261,33 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
         .fg(Color::LightCyan);
     let ss_inner_menu = ss_block_menu.inner(s_layout[0]);
     ss_block_menu.render(s_layout[0], buf);
+
+    let menu_items = [
+        "[1] Scan recent DKMH",
+        "[2] Maker",
+        "[3] Edit strategies config",
+        "[4] (～￣▽￣)～",
+    ];
+    let menu_lines: Vec<Line> = menu_items
+        .iter()
+        .enumerate()
+        .map(|(index, label)| {
+            let style = if index == app.main_menu_index {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightCyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Line::from(vec![Span::styled(format!("{}", label), style)])
+        })
+        .collect();
+    let menu_paragraph = Paragraph::new(menu_lines)
+        .block(Block::default())
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: true });
+    menu_paragraph.render(ss_inner_menu, buf);
 
     let ss_block_credit = Block::bordered()
         .title("Credits")
@@ -238,7 +304,7 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
         .centered();
     credit_paragraph.render(ss_inner_credit, buf);
 
-    let text = "Press `Esc` or `q` to stop running.";
+    let text = "Press `Esc` or `q` to stop running. Navigate with Up/Down or 1-4. Press Space to select.";
     let paragraph = Paragraph::new(text)
         .block(Block::default())
         .fg(Color::Cyan)

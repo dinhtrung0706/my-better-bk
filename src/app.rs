@@ -22,6 +22,7 @@ const MIN_SPLASH_DURATION: Duration = Duration::from_secs(5);
 const LOGIN_REDIRECT_TIMEOUT: Duration = Duration::from_secs(30);
 const WEBDRIVER_SERVER_URL: &str = "http://localhost:4444";
 const WEBDRIVER_LOG_FILE: &str = "chromedriver.log";
+const MAIN_MENU_LEN: usize = 4;
 
 /// Application.
 #[derive(Debug)]
@@ -49,6 +50,10 @@ pub struct App {
     pub auth_field: AuthField,
     /// Whether an auth attempt is currently running.
     pub auth_in_progress: bool,
+    /// Selected menu index in the main screen.
+    pub main_menu_index: usize,
+    /// Whether to show the menu 4 easter egg art.
+    pub show_menu_art: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +84,8 @@ impl Default for App {
             auth_password: String::new(),
             auth_field: AuthField::Username,
             auth_in_progress: false,
+            main_menu_index: 0,
+            show_menu_art: false,
         }
     }
 }
@@ -188,6 +195,27 @@ impl App {
                     self.auth_password.pop();
                 }
             },
+            KeyCode::Up if matches!(self.screen, Screen::Main) => {
+                if self.main_menu_index == 0 {
+                    self.main_menu_index = MAIN_MENU_LEN - 1;
+                } else {
+                    self.main_menu_index -= 1;
+                }
+            }
+            KeyCode::Down if matches!(self.screen, Screen::Main) => {
+                self.main_menu_index = (self.main_menu_index + 1) % MAIN_MENU_LEN;
+            }
+            KeyCode::Char(ch) if matches!(self.screen, Screen::Main) => {
+                if ('1'..='9').contains(&ch) {
+                    let index = (ch as u8).saturating_sub(b'1') as usize;
+                    if index < MAIN_MENU_LEN {
+                        self.main_menu_index = index;
+                        self.show_menu_art = index == 3;
+                    }
+                } else if ch == ' ' {
+                    self.show_menu_art = self.main_menu_index == 3;
+                }
+            }
             _ => {}
         }
         Ok(())
