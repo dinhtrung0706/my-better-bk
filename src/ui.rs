@@ -231,7 +231,7 @@ fn render_main(_app: &App, area: Rect, buf: &mut Buffer) {
     let ss_inner_credit = ss_block_credit.inner(s_layout[1]);
     ss_block_credit.render(s_layout[1], buf);
 
-    let credit = "Author: `Your Name`\nProject: MyBetterBK\nLicense: MIT, Language: Rust, Framework: Ratatui";
+    let credit = "Author: `Dinh Duc Trung`\nProject: MyBetterBK\nLicense: MIT, Language: Rust, Framework: Ratatui";
     let credit_paragraph = Paragraph::new(credit)
         .block(Block::default())
         .fg(Color::White)

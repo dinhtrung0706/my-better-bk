@@ -20,6 +20,8 @@ const DEV_FLAG: &str = "--dd07t06-dev";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(5);
 const LOGIN_REDIRECT_TIMEOUT: Duration = Duration::from_secs(30);
+const WEBDRIVER_SERVER_URL: &str = "http://localhost:4444";
+const WEBDRIVER_LOG_FILE: &str = "chromedriver.log";
 
 /// Application.
 #[derive(Debug)]
@@ -348,11 +350,10 @@ async fn simulate_auth_login(
     auth_password: String,
 ) -> Result<(), String> {
     let info = ensure_latest_driver("./driver").await.unwrap();
-    Command::new(&info.driver_path)
+    let mut driver_process = Command::new(&info.driver_path)
         .arg("--port=4444")
-        .arg("--log-level=OFF")
-        .arg("--silent")
-        .arg("--log-path=NUL")
+        .arg("--log-level=INFO")
+        .arg(format!("--log-path={WEBDRIVER_LOG_FILE}"))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -371,9 +372,12 @@ async fn simulate_auth_login(
         .map_err(|err| err.to_string())?;
     caps.add_arg("--silent").map_err(|err| err.to_string())?;
 
-    let server_url = "http://localhost:4444";
+    if let Err(err) = wait_for_driver_ready(&mut driver_process, WEBDRIVER_SERVER_URL).await {
+        let _ = driver_process.kill();
+        return Err(err);
+    }
 
-    let driver = WebDriver::new(server_url, caps)
+    let driver = WebDriver::new(WEBDRIVER_SERVER_URL, caps)
         .await
         .map_err(|err| err.to_string())?;
 
@@ -414,11 +418,43 @@ async fn simulate_auth_login(
 
     if let Err(err) = login_result {
         let _ = driver.quit().await;
+        let _ = driver_process.kill();
         return Err(err);
     }
 
     driver.quit().await.map_err(|err| err.to_string())?;
+    let _ = driver_process.kill();
     Ok(())
+}
+
+async fn wait_for_driver_ready(
+    driver_process: &mut std::process::Child,
+    server_url: &str,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|err| err.to_string())?;
+    let started = Instant::now();
+    let timeout = Duration::from_secs(10);
+
+    loop {
+        if let Ok(Some(status)) = driver_process.try_wait() {
+            return Err(format!(
+                "ChromeDriver exited early with status {status}. See {WEBDRIVER_LOG_FILE}"
+            ));
+        }
+        if started.elapsed() >= timeout {
+            return Err(format!(
+                "WebDriver did not become ready in time. See {WEBDRIVER_LOG_FILE}"
+            ));
+        }
+
+        match client.get(format!("{server_url}/status")).send().await {
+            Ok(response) if response.status().is_success() => return Ok(()),
+            _ => tokio::time::sleep(Duration::from_millis(200)).await,
+        }
+    }
 }
 
 async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
@@ -428,7 +464,7 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         if url.as_str().starts_with(AUTH_CHECK_URL) {
             return Ok(());
         }
-        if url.as_str().starts_with(AUTH_LOGIN_URL)
+        if url.as_str().starts_with(AUTH_LOGIN_URL.split("?").nth(0).unwrap_or(""))
             && started.elapsed() >= Duration::from_secs(1)
             && is_wrong_credential_message_visible(driver).await?
         {
@@ -437,12 +473,12 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         if started.elapsed() >= LOGIN_REDIRECT_TIMEOUT {
             return Err("Login redirect timed out".to_string());
         }
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
 async fn is_wrong_credential_message_visible(driver: &WebDriver) -> Result<bool, String> {
-    if let Ok(element) = driver.find(By::Css("#msg.errors")).await {
+    if let Ok(element) = driver.find(By::Css("#msg")).await {
         let text = element.text().await.map_err(|err| err.to_string())?;
         if text.contains("cannot be determined to be authentic") {
             return Ok(true);
