@@ -74,8 +74,9 @@ fn render_splash(app: &App, area: Rect, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded)
                 .title("Loading"),
         )
-        .line_set(ratatui::symbols::line::THICK)
         .filled_style(Style::default().fg(Color::Green))
+        .filled_symbol(ratatui::symbols::line::THICK.horizontal)
+        .unfilled_symbol(ratatui::symbols::line::NORMAL.horizontal)
         .label(format!("{progress}/{total}"))
         .ratio(progress as f64 / total as f64);
     gauge.render(layout[3], buf);
@@ -304,7 +305,8 @@ fn render_main(app: &App, area: Rect, buf: &mut Buffer) {
         .centered();
     credit_paragraph.render(ss_inner_credit, buf);
 
-    let text = "Press `Esc` or `q` to stop running. Navigate with Up/Down or 1-4. Press Space to select.";
+    let text =
+        "Press `Esc` or `q` to stop running. Navigate with Up/Down or 1-4. Press Space to select.";
     let paragraph = Paragraph::new(text)
         .block(Block::default())
         .fg(Color::Cyan)

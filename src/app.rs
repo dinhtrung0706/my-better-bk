@@ -319,21 +319,18 @@ async fn check_auth() -> CheckOutcome {
 fn check_strategies() -> CheckOutcome {
     match fs::read_to_string(STRATEGIES_FILE) {
         Ok(contents) if !contents.trim().is_empty() => {
-            let lines: Vec<String> = contents.lines().map(|line| line.trim().to_string()).collect();
+            let lines: Vec<String> = contents
+                .lines()
+                .map(|line| line.trim().to_string())
+                .collect();
             if lines.iter().all(|line| line.is_empty()) {
                 return CheckOutcome::Warning("Strategies empty".to_string());
             }
             if lines.len() != 3 {
-                return reset_invalid_strategies(format!(
-                    "expected 3 lines, got {}",
-                    lines.len()
-                ));
+                return reset_invalid_strategies(format!("expected 3 lines, got {}", lines.len()));
             }
-            // if lines.iter().any(|line| line.is_empty()) {
-            //     return reset_invalid_strategies("empty line detected".to_string());
-            // }
-            for line in 0..1 {
-                if lines[line].is_empty() {
+            for line in lines.iter().take(1) {
+                if line.is_empty() {
                     return reset_invalid_strategies("empty line detected".to_string());
                 }
             }
@@ -370,9 +367,7 @@ fn check_strategies() -> CheckOutcome {
 
 fn reset_invalid_strategies(reason: String) -> CheckOutcome {
     match fs::write(STRATEGIES_FILE, DEFAULT_STRATEGIES_CONTENTS) {
-        Ok(()) => CheckOutcome::Warning(format!(
-            "Strategies invalid ({reason}); reset to default"
-        )),
+        Ok(()) => CheckOutcome::Warning(format!("Strategies invalid ({reason}); reset to default")),
         Err(err) => CheckOutcome::Failure(format!(
             "Strategies invalid ({reason}); failed to reset default: {err}"
         )),
@@ -385,22 +380,8 @@ fn parse_line1(line: &str) -> Result<bool, String> {
         return Err("line 1 must have 4 fields separated by '|'".to_string());
     }
 
-    validate_range_list(
-        parts[0],
-        0,
-        6,
-        true,
-        false,
-        "day range",
-    )?;
-    validate_range_list(
-        parts[1],
-        1,
-        16,
-        false,
-        true,
-        "lesson range",
-    )?;
+    validate_range_list(parts[0], 0, 6, true, false, "day range")?;
+    validate_range_list(parts[1], 1, 16, false, true, "lesson range")?;
 
     let max_subjects: u32 = parts[2]
         .parse()
@@ -481,8 +462,12 @@ fn validate_range_list(
 fn validate_cron_time(line: &str, cron_enabled: bool) -> Result<(), String> {
     if cron_enabled {
         let mut parts = line.split(':');
-        let hour = parts.next().ok_or_else(|| "cron time missing hour".to_string())?;
-        let minute = parts.next().ok_or_else(|| "cron time missing minute".to_string())?;
+        let hour = parts
+            .next()
+            .ok_or_else(|| "cron time missing hour".to_string())?;
+        let minute = parts
+            .next()
+            .ok_or_else(|| "cron time missing minute".to_string())?;
         if parts.next().is_some() {
             return Err("cron time must be HH:MM".to_string());
         }
@@ -687,7 +672,9 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         if url.as_str().starts_with(AUTH_CHECK_URL) {
             return Ok(());
         }
-        if url.as_str().starts_with(AUTH_LOGIN_URL.split("?").nth(0).unwrap_or(""))
+        if url
+            .as_str()
+            .starts_with(AUTH_LOGIN_URL.split("?").nth(0).unwrap_or(""))
             && started.elapsed() >= Duration::from_secs(1)
             && is_wrong_credential_message_visible(driver).await?
         {
