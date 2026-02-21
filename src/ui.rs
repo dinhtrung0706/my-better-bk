@@ -281,7 +281,7 @@ fn render_main(app: &App, area: Rect, buf: &mut Buffer) {
             } else {
                 Style::default().fg(Color::White)
             };
-            Line::from(vec![Span::styled(format!("{}", label), style)])
+            Line::from(vec![Span::styled(label.to_string(), style)])
         })
         .collect();
     let menu_paragraph = Paragraph::new(menu_lines)

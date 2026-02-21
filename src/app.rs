@@ -674,7 +674,7 @@ async fn wait_for_auth_redirect(driver: &WebDriver) -> Result<(), String> {
         }
         if url
             .as_str()
-            .starts_with(AUTH_LOGIN_URL.split("?").nth(0).unwrap_or(""))
+            .starts_with(AUTH_LOGIN_URL.split("?").next().unwrap_or(""))
             && started.elapsed() >= Duration::from_secs(1)
             && is_wrong_credential_message_visible(driver).await?
         {
