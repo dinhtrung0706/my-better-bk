@@ -23,6 +23,7 @@ const LOGIN_REDIRECT_TIMEOUT: Duration = Duration::from_secs(30);
 const WEBDRIVER_SERVER_URL: &str = "http://localhost:4444";
 const WEBDRIVER_LOG_FILE: &str = "chromedriver.log";
 const MAIN_MENU_LEN: usize = 4;
+const DEFAULT_STRATEGIES_CONTENTS: &str = "0|1-2|3|0\n--:--\n\n";
 
 /// Application.
 #[derive(Debug)]
@@ -317,7 +318,44 @@ async fn check_auth() -> CheckOutcome {
 
 fn check_strategies() -> CheckOutcome {
     match fs::read_to_string(STRATEGIES_FILE) {
-        Ok(contents) if !contents.trim().is_empty() => CheckOutcome::Success,
+        Ok(contents) if !contents.trim().is_empty() => {
+            let lines: Vec<String> = contents.lines().map(|line| line.trim().to_string()).collect();
+            if lines.iter().all(|line| line.is_empty()) {
+                return CheckOutcome::Warning("Strategies empty".to_string());
+            }
+            if lines.len() != 3 {
+                return reset_invalid_strategies(format!(
+                    "expected 3 lines, got {}",
+                    lines.len()
+                ));
+            }
+            // if lines.iter().any(|line| line.is_empty()) {
+            //     return reset_invalid_strategies("empty line detected".to_string());
+            // }
+            for line in 0..1 {
+                if lines[line].is_empty() {
+                    return reset_invalid_strategies("empty line detected".to_string());
+                }
+            }
+
+            let (line1, line2, line3) = (&lines[0], &lines[1], &lines[2]);
+            let cron_enabled = match parse_line1(line1) {
+                Ok(enabled) => enabled,
+                Err(message) => {
+                    return reset_invalid_strategies(message);
+                }
+            };
+
+            if let Err(message) = validate_cron_time(line2, cron_enabled) {
+                return reset_invalid_strategies(message);
+            }
+
+            if let Err(message) = validate_subject_ids(line3) {
+                return reset_invalid_strategies(message);
+            }
+
+            CheckOutcome::Success
+        }
         Ok(_) => CheckOutcome::Warning("Strategies empty".to_string()),
         Err(_) => {
             if let Err(err) = fs::write(STRATEGIES_FILE, "") {
@@ -328,6 +366,163 @@ fn check_strategies() -> CheckOutcome {
             CheckOutcome::Warning("Strategies missing; created blank file".to_string())
         }
     }
+}
+
+fn reset_invalid_strategies(reason: String) -> CheckOutcome {
+    match fs::write(STRATEGIES_FILE, DEFAULT_STRATEGIES_CONTENTS) {
+        Ok(()) => CheckOutcome::Warning(format!(
+            "Strategies invalid ({reason}); reset to default"
+        )),
+        Err(err) => CheckOutcome::Failure(format!(
+            "Strategies invalid ({reason}); failed to reset default: {err}"
+        )),
+    }
+}
+
+fn parse_line1(line: &str) -> Result<bool, String> {
+    let parts: Vec<&str> = line.split('|').map(str::trim).collect();
+    if parts.len() != 4 {
+        return Err("line 1 must have 4 fields separated by '|'".to_string());
+    }
+
+    validate_range_list(
+        parts[0],
+        0,
+        6,
+        true,
+        false,
+        "day range",
+    )?;
+    validate_range_list(
+        parts[1],
+        1,
+        16,
+        false,
+        true,
+        "lesson range",
+    )?;
+
+    let max_subjects: u32 = parts[2]
+        .parse()
+        .map_err(|_| "maximum subjects must be a positive integer".to_string())?;
+    if max_subjects == 0 {
+        return Err("maximum subjects must be greater than 0".to_string());
+    }
+
+    let cron_enabled = match parts[3] {
+        "0" => false,
+        "1" => true,
+        _ => return Err("cron mode must be 0 or 1".to_string()),
+    };
+
+    Ok(cron_enabled)
+}
+
+fn validate_range_list(
+    value: &str,
+    min: u32,
+    max: u32,
+    allow_single: bool,
+    allow_slash: bool,
+    label: &str,
+) -> Result<(), String> {
+    if value.is_empty() {
+        return Err(format!("{label} cannot be empty"));
+    }
+
+    let normalized = if allow_slash {
+        value.replace('/', ",")
+    } else {
+        value.to_string()
+    };
+
+    for token in normalized.split(',') {
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(format!("{label} contains empty entry"));
+        }
+
+        if let Some((start_raw, end_raw)) = token.split_once('-') {
+            let start: u32 = start_raw
+                .trim()
+                .parse()
+                .map_err(|_| format!("{label} has invalid number"))?;
+            let end: u32 = end_raw
+                .trim()
+                .parse()
+                .map_err(|_| format!("{label} has invalid number"))?;
+
+            if start < min || end > max {
+                return Err(format!("{label} must be within {min}-{max}"));
+            }
+            if allow_single {
+                if start > end {
+                    return Err(format!("{label} range must be ascending"));
+                }
+            } else if start >= end {
+                return Err(format!("{label} range must have at least two values"));
+            }
+        } else {
+            if !allow_single {
+                return Err(format!("{label} must use ranges with '-'"));
+            }
+            let value: u32 = token
+                .parse()
+                .map_err(|_| format!("{label} has invalid number"))?;
+            if value < min || value > max {
+                return Err(format!("{label} must be within {min}-{max}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_cron_time(line: &str, cron_enabled: bool) -> Result<(), String> {
+    if cron_enabled {
+        let mut parts = line.split(':');
+        let hour = parts.next().ok_or_else(|| "cron time missing hour".to_string())?;
+        let minute = parts.next().ok_or_else(|| "cron time missing minute".to_string())?;
+        if parts.next().is_some() {
+            return Err("cron time must be HH:MM".to_string());
+        }
+        if hour.len() != 2 || minute.len() != 2 {
+            return Err("cron time must be HH:MM".to_string());
+        }
+
+        let hour: u32 = hour
+            .parse()
+            .map_err(|_| "cron hour must be numeric".to_string())?;
+        let minute: u32 = minute
+            .parse()
+            .map_err(|_| "cron minute must be numeric".to_string())?;
+        if hour > 23 || minute > 59 {
+            return Err("cron time must be within 00:00-23:59".to_string());
+        }
+        Ok(())
+    } else if line == "--:--" {
+        Ok(())
+    } else {
+        Err("cron time must be --:-- when cron mode is 0".to_string())
+    }
+}
+
+fn validate_subject_ids(line: &str) -> Result<(), String> {
+    if line.trim().is_empty() {
+        return Ok(());
+    }
+
+    let subjects: Vec<&str> = line
+        .split(',')
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect();
+
+    if subjects.len() != line.split(',').count() {
+        return Err("subject list contains empty entry".to_string());
+    }
+
+    Ok(())
 }
 
 async fn check_version() -> CheckOutcome {
